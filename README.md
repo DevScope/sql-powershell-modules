@@ -22,9 +22,7 @@ $dataSet = Invoke-DBCommand -providerName "System.Data.OleDb" -connectionString 
 
 # Insert row into a SQL database
 
-$dataSet.Tables[0].Rows |% {	
-	$numRows = Invoke-DBCommand -providerName "System.Data.SqlClient" -connectionString "Integrated Security=SSPI;Persist Security Info=True;Initial Catalog=Dummy;Data Source=.\sql2012" -executeType "NonQuery" -commandText "insert into dbo.Products values (@id, @name, @datecreated)" -parameters @{"@id"=$_.ProductKey;"@name"=$_.EnglishProductName;"@datecreated"=[datetime]::Now}					
-}
+$numRows = Invoke-DBCommand -providerName "System.Data.SqlClient" -connectionString "<connStr>" -executeType "NonQuery" -commandText "insert into dbo.Products values (@id, @name, @datecreated)" -parameters @{"@id"=1;"@name"='NewProduct';"@datecreated"=[datetime]::Now}
 
 ```
 
@@ -34,7 +32,7 @@ $dataSet.Tables[0].Rows |% {
 
 # BulkCopy into a SQL Database
 
-Invoke-SqlBulkCopy -connectionString "Integrated Security=SSPI;Persist Security Info=True;Initial Catalog=Dummy;Data Source=.\sql2012" `
+Invoke-SqlBulkCopy -connectionString "<connStr>" `
 		-tableName "dbo.Products" `
 		-data $dataSet.Tables[0] `
 		-columnMappings @{"ProductKey" = "Id"; "EnglishProductName" = "Name"} -verbose
@@ -45,9 +43,9 @@ Invoke-SqlBulkCopy -connectionString "Integrated Security=SSPI;Persist Security 
 
 ```powershell
 
-$sourceConnStr = "Integrated Security=SSPI;Persist Security Info=False;Initial Catalog=AdventureWorksDW2012;Data Source=.\sql2014"
+$sourceConnStr = "<sourceConnStr>"
 
-$destinationConnStr = "Integrated Security=SSPI;Persist Security Info=False;Initial Catalog=DestinationDB;Data Source=.\sql2014"
+$destinationConnStr = "<destinationConnStr>"
 
 $tables = @("[dbo].[DimProduct]", "[dbo].[FactInternetSales]")
 
