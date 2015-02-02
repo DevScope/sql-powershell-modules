@@ -5,6 +5,9 @@ A collection of powerfull but simple powershell cmdlets for working with SQL dat
 
 Examples of usage:
 
+
+```powershell
+
 $dataSet = Invoke-DBCommand -providerName "System.Data.OleDb" -connectionString "Provider=Microsoft.ACE.OLEDB.12.0;Data Source='$currentPath\ExcelData.xlsx';Extended Properties=Excel 12.0" -commandText "select * from [Sheet1$]" -verbose
 
 $dataSet.Tables[0].Rows |% {	
@@ -19,3 +22,7 @@ Invoke-SqlBulkCopy -connectionString "Integrated Security=SSPI;Persist Security 
 		-tableName "dbo.Products" `
 		-data $dataSet.Tables[0] `
 		-columnMappings @{"ProductKey" = "Id"; "EnglishProductName" = "Name"} -verbose
+
+```
+
+
