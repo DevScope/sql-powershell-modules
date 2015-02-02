@@ -1,7 +1,6 @@
 # SQLHelper.psm1
-A single lightweight powershell module with cmdlets to query/update databases with any .net provider: SQL/OLEDB/ODBC/...
 
-Samples:
+A single lightweight powershell module with cmdlets to query/update databases with any .net provider: SQL/OLEDB/ODBC/...
 
 ## Query
 
