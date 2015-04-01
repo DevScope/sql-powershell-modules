@@ -59,11 +59,11 @@ $tables |% {
 	
 	Write-Progress -activity "Tables Copy" -CurrentOperation "Executing source query over '$sourceTableName'" -PercentComplete (($i / $steps)  * 100) -Verbose
 	
-	$sourceTable = (Invoke-SQLCommand -executeType "QueryAsDataSet" -connectionString $sourceConnStr -commandText "select * from $sourceTableName" -Verbose).Tables[0]
+	$sourceTable = Invoke-SQLCommand -executeType QueryAsTable -connectionString $sourceConnStr -commandText "select * from $sourceTableName" -Verbose
 	
 	Write-Progress -activity "Tables Copy" -CurrentOperation "Creating destination table '$destinationTableName'" -PercentComplete (($i / $steps)  * 100) -Verbose
 	
-	New-SQLTable -connectionString $destinationConnStr -table $sourceTable -tableName $destinationTableName -force -Verbose
+	New-SQLTable -connectionString $destinationConnStr -data $sourceTable -tableName $destinationTableName -force -Verbose
 	
 	Write-Progress -activity "Tables Copy" -CurrentOperation "Loading destination table '$destinationTableName'" -PercentComplete (($i / $steps)  * 100) -Verbose
 	
