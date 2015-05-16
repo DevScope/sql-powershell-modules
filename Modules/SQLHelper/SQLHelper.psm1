@@ -67,7 +67,7 @@ function Get-SQLConnection
 function Invoke-SQLCommand{
 <#
 .SYNOPSIS
-    Invokes a SQLCommand of type: "Query", "QueryAsTable", "QueryAsDataSet", "NonQuery", "Scalar", "Reader", "Schema"
+    Invokes a SQLCommand with the following execution types: "Query", "QueryAsTable", "QueryAsDataSet", "NonQuery", "Scalar", "Reader", "Schema"
 		
  .EXAMPLE
         Invoke-SQLCommand -connectionString "<connStr>" -commandText "select * from [table]"
@@ -79,11 +79,12 @@ function Invoke-SQLCommand{
 		[Parameter(Mandatory=$false, ParameterSetName = "connStr")] [string] $providerName = "System.Data.SqlClient",
 		[Parameter(Mandatory=$true, ParameterSetName = "connStr")] [string] $connectionString,
 		[Parameter(Mandatory=$true, ParameterSetName = "conn")] [System.Data.Common.DbConnection] $connection,
-		[Parameter(Mandatory=$false, ParameterSetName = "conn")] [System.Data.SqlClient.SqlTransaction] $transaction,		
+		[Parameter(Mandatory=$false, ParameterSetName = "conn")] [System.Data.SqlClient.SqlTransaction] $transaction,
 		[ValidateSet("Query", "QueryAsTable", "QueryAsDataSet", "NonQuery", "Scalar", "Reader", "Schema")] [string] $executeType = "Query",
 		[Parameter(Mandatory=$true)] [string] $commandText,		
-		$parameters = $null,
-		[int] $commandTimeout = 300
+		[Parameter(Mandatory=$false)] [System.Data.CommandType] $commandType = [System.Data.CommandType]::Text,
+		[Parameter(Mandatory=$false)] $parameters = $null,
+		[Parameter(Mandatory=$false)] [int] $commandTimeout = 300
 		)
 
 	try
@@ -105,6 +106,8 @@ function Invoke-SQLCommand{
 			
 			$cmd.CommandText = $commandText
 		
+			$cmd.CommandType = $commandType
+			
 		   	$cmd.CommandTimeout = $commandTimeout			
 			
 			$cmd.Transaction = $transaction
@@ -296,16 +299,13 @@ Function Invoke-SQLBulkCopy{
 		[Parameter(Mandatory=$true)] $data,
 		[Parameter(Mandatory=$true)] [string] $tableName,
 		[Parameter(Mandatory=$false)] [hashtable]$columnMappings = $null,
-		[Parameter(Mandatory=$false)] [int]$batchSize = 1000
+		[Parameter(Mandatory=$false)] [int]$batchSize = 1000,
+		[switch] $ensureTableExists = $true
 	)
 	
 	try
-	{					
-		if ($PsCmdlet.ParameterSetName -eq "connStr")
-		{
-			$connection = Get-SQLConnection -connectionString $connectionString -providerName "System.Data.SqlClient" -open			
-		}	    	    				
-		
+	{						
+		# Need to do this because if a DataReader is directly passed is automaticaly readed
 		if ($data -is [hashtable])
 		{									
 			if ($data["reader"] -is [System.Data.IDataReader])
@@ -317,6 +317,47 @@ Function Invoke-SQLBulkCopy{
 				throw "Invalid type for '-data', must be a HashTable with 'reader' property of type DbReader"
 			}
 		}
+		# If is a array convert to a DataTable
+		elseif ($data -is [array])
+		{
+			$dataTable = New-Object System.Data.DataTable
+			
+			$firstFlag = $true
+			foreach ($obj in $data)
+			{
+				$dr = $dataTable.NewRow()
+				
+				$obj.PsObject.get_properties() |% {
+				
+					if ($firstFlag)
+					{
+						 $col =  new-object Data.DataColumn  
+						 $col.ColumnName = $_.Name.ToString() 
+						 $dataTable.Columns.Add($col)
+					}										
+				
+					$dr[$_.Name] = $_.value
+				}
+				
+				$dataTable.Rows.Add($dr)
+				$firstFlag = $false
+			}
+			
+			$data = $dataTable
+		}
+		elseif ($data -is [System.Data.DataTable])
+		{
+			# TODO
+		}
+		else
+		{
+			throw "Invalid type for '-data', must be a HashTable with 'reader' property of type DbReader or a [Array] or a [DataTable]"
+		}
+		
+		if ($PsCmdlet.ParameterSetName -eq "connStr")
+		{
+			$connection = Get-SQLConnection -connectionString $connectionString -providerName "System.Data.SqlClient" -open			
+		}	  
 		
 		$bulk = New-Object System.Data.SqlClient.SqlBulkCopy($connection, [System.Data.SqlClient.SqlBulkCopyOptions]::TableLock, $transaction)  				
 		
@@ -341,6 +382,23 @@ Function Invoke-SQLBulkCopy{
 			}			
 		}
 		
+		if ($ensureTableExists)
+		{
+			if (-not (Test-SQLObjectExists -connection $connection -objectName $tableName -objectType "U"))
+			{
+				Write-Verbose "Creating destination table '$tableName'"
+				
+				$dataForNewTable = $data
+				
+				if ($dataForNewTable -is [System.Data.IDataReader])
+				{	
+					$dataForNewTable = @{reader=$dataForNewTable}
+				}
+				
+				New-SQLTable -connection $connection -data $dataForNewTable -tableName $tableName -force			
+			}
+		}		
+		
 		$bulk.BatchSize = $batchSize
 		$bulk.NotifyAfter = $batchSize
 		
@@ -349,10 +407,16 @@ Function Invoke-SQLBulkCopy{
 			})
 					
 	    $bulk.WriteToServer($data)    	
+				
+		$rowsCopied = [int]$bulk.GetType().GetField("_rowsCopied", [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::GetField -bor [System.Reflection.BindingFlags]::Instance).GetValue($bulk);
+		
+		Write-Verbose "Inserted $rowsCopied rows"
 		
 		$bulk.Close()
 		
 		Write-Verbose "SQLBulkCopy finished for '$($bulk.DestinationTableName)'"
+		
+		return $rowsCopied
 	}	
 	finally
 	{	
@@ -439,40 +503,58 @@ function New-SQLTable{
 	}
 	
     $commandText = "
-	IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'$tableName') AND type in (N'U'))
+	declare @sqlCmd nvarchar(max)
+
+	IF @force = 1 AND object_id(@tableName, 'U') is not null
 	BEGIN
-		CREATE TABLE $tableName
-        (
-        	$strcolumns
-        );
-	END					
+		raiserror('Droping Table ""%s""', 1, 1, @tableName)
+
+		set @sqlCmd = 'drop table ' + @tableName + char(13)
+
+		exec sp_executesql @sqlCmd
+	END
+
+	IF object_id(@tableName, 'U') is null
+	BEGIN
+		
+		declare @schemaName varchar(20)
+
+		set @sqlCmd = ''
+
+		set @schemaName = parsename(@tableName,2)
+		IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = @schemaName)
+		BEGIN		
+			set @sqlCmd = 'CREATE SCHEMA ' + @schemaName  + char(13)
+		END
+
+		set @sqlCmd = @sqlCmd + 'CREATE TABLE ' + @tableName + '(' + @columns + ');'
+
+		raiserror('Creating Table ""%s""', 1, 1, @tableName)
+
+		exec sp_executesql @sqlCmd
+	END
+	ELSE
+	BEGIN
+		raiserror('Table ""%s"" already exists', 1, 1, @tableName)
+	END						
 	"
 	
-	if ($force)
-	{
-		$commandText = "
-		IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'$tableName') AND type in (N'U'))
-		BEGIN
-			drop table $tableName
-		END
-		;		
-		" + $commandText
-	}
+	$parameters = @{tableName = $tableName; columns = $strcolumns; force = [bool]$force}
 	
 	if ($PsCmdlet.ParameterSetName -eq "connStr")
 	{
-		Invoke-SQLCommand -connectionString $connectionString -providerName "System.Data.SqlClient" -commandText $commandText -executeType "NonQuery" | Out-Null
+		Invoke-SQLCommand -connectionString $connectionString -providerName "System.Data.SqlClient" -commandText $commandText -executeType "NonQuery" -parameters $parameters | Out-Null
 	}
 	else
 	{
-		Invoke-SQLCommand -connection $connection -transaction $transaction -commandText $commandText -executeType "NonQuery" | Out-Null
+		Invoke-SQLCommand -connection $connection -transaction $transaction -commandText $commandText -executeType "NonQuery" -parameters $parameters | Out-Null
 	}				
 }
 
-function Test-SQLTableExists{
+function Test-SQLObjectExists{
 <#
 .SYNOPSIS
-    Tests if the SQL Table Exists		
+    Tests if the SQL Object Exists	
 
 #>
     [CmdletBinding(DefaultParameterSetName = "connStr")]
@@ -480,27 +562,38 @@ function Test-SQLTableExists{
 		[Parameter(Mandatory=$true, ParameterSetName = "connStr")] [string] $connectionString,
 		[Parameter(Mandatory=$true, ParameterSetName = "conn")] [System.Data.SqlClient.SqlConnection] $connection,
 		[Parameter(Mandatory=$false, ParameterSetName = "conn")] [System.Data.SqlClient.SqlTransaction] $transaction,		   		
-		[Parameter(Mandatory=$true)] [string] $tableName		
+		[Parameter(Mandatory=$true)] [string] $objectName,		
+		[Parameter(Mandatory=$false)] [string] $objectType
 		)
-			 										   	
-    $commandText = "
-	IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'$tableName') AND type in (N'U'))
-	BEGIN
-		select cast(1 as bit)
-	END
-	ELSE
-	BEGIN
-		select cast(0 as bit)
-	END
-	"
 	
-	if ($PsCmdlet.ParameterSetName -eq "connStr")
+	if (-not [string]::IsNullOrEmpty($objectType))
 	{
-		$result = Invoke-SQLCommand -connectionString $connectionString -providerName "System.Data.SqlClient" -commandText $commandText -executeType "Scalar"
+		$commandText = "if object_id(@objectName, @objectType) is not null"
 	}
 	else
 	{
-		$result = Invoke-SQLCommand -connection $connection -transaction $transaction -commandText $commandText -executeType "Scalar"
+		$commandText = "if object_id(@objectName) is not null"
+	}		
+	
+    $commandText += "
+	begin 
+		select cast(1 as bit)
+	end
+	else
+	begin
+		select cast(0 as bit)
+	end
+	"
+	
+	$parameters = @{objectName=$objectName; objectType=$objectType}
+	
+	if ($PsCmdlet.ParameterSetName -eq "connStr")
+	{
+		$result = Invoke-SQLCommand -connectionString $connectionString -providerName "System.Data.SqlClient" -commandText $commandText -executeType "Scalar" -parameters $parameters
+	}
+	else
+	{
+		$result = Invoke-SQLCommand -connection $connection -transaction $transaction -commandText $commandText -executeType "Scalar" -parameters $parameters
 	}				
 	
 	Write-Output $result
@@ -521,25 +614,32 @@ function Convert-DotNetTypeToSQLType ($typeStr, $size, $numericPrecision, $numer
 			return "bit"
 		}
 		"System.String"{
-			if (-not [string]::IsNullOrEmpty($dataTypeName))
+			
+			if ([string]::IsNullOrEmpty($dataTypeName))
 			{
-				return "$dataTypeName($size)"
+				$dataTypeName = "nvarchar"				
 			}
 			
-			if ($size -ne $null)
+			if ($size -eq $null -or ($dataTypeName -eq "varchar" -and $size -ge 8000) -or ($dataTypeName -eq "nvarchar" -and $size -ge 4000))
 			{
-				return "nvarchar($size)"
+				$size = "MAX"
 			}
-			else
-			{
-				return "nvarchar(max)"
-			}
+			
+			return "$dataTypeName($size)"	
+			
 		}
 		"System.Decimal"{
 			# Scale zero default to int
 			if ($numericScale -eq 0)
 			{
-				return "int"
+				if ($numericPrecision -lt 10)				
+				{
+					return "int"
+				}
+				else
+				{
+					return "bigint"
+				}
 			}
 			
 			if ($dataTypeName -like "*money")
@@ -583,5 +683,3 @@ function Convert-DotNetTypeToSQLType ($typeStr, $size, $numericPrecision, $numer
 
 
 #endregion
-
-Export-ModuleMember -Function @("Get-SQLConnection", "Invoke-SQLCommand", "Invoke-SQLQuery", "New-SQLTable", "Test-SQLTableExists", "Invoke-SQLBulkCopy")
