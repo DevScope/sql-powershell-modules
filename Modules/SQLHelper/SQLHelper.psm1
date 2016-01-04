@@ -271,7 +271,7 @@ function Invoke-SQLQuery{
 	
 	if ($PsCmdlet.ParameterSetName -eq "connStr")
 	{
-		Invoke-SQLCommand -executeType "Query" -connectionString $sourceConnStr -providerName $providerName -commandText $query -parameters $parameters -commandTimeout $commandTimeout
+		Invoke-SQLCommand -executeType "Query" -connectionString $connectionString -providerName $providerName -commandText $query -parameters $parameters -commandTimeout $commandTimeout
 	}
 	else
 	{
