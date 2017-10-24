@@ -12,7 +12,7 @@
 RootModule = 'SQLHelper.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.1.0.3'
+ModuleVersion = '1.2.0.3'
 
 # ID used to uniquely identify this module
 GUID = '58cceccb-ffc5-433a-be84-e5756d8f86c6'
@@ -51,7 +51,7 @@ Description = 'A single lightweight powershell module with cmdlets to query/upda
 # RequiredModules = @()
 
 # Assemblies that must be loaded prior to importing this module
-# RequiredAssemblies = @()
+# RequiredAssemblies = @(".\CsvHelper.dll")
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
 # ScriptsToProcess = @()
@@ -66,7 +66,7 @@ Description = 'A single lightweight powershell module with cmdlets to query/upda
 # NestedModules = @()
 
 # Functions to export from this module
-FunctionsToExport = @("Get-SQLConnection", "Invoke-SQLCommand", "Invoke-SQLQuery", "New-SQLTable", "Test-SQLObjectExists", "Invoke-SQLBulkCopy")
+FunctionsToExport = @("Get-SQLConnection", "Invoke-SQLCommand", "Invoke-SQLQuery", "New-SQLTable", "Test-SQLObjectExists", "Invoke-SQLBulkCopy", "Export-SQLToCSV")
 
 # Cmdlets to export from this module
 CmdletsToExport = @()
@@ -81,7 +81,7 @@ AliasesToExport = '*'
 # ModuleList = @()
 
 # List of all files packaged with this module
-# FileList = @()
+FileList = @(".\CsvHelper.dll")
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
 PrivateData = @{
