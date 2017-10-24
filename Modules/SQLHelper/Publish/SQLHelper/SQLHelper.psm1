@@ -637,6 +637,121 @@ function Test-SQLObjectExists{
 	Write-Output $result
 }
 
+
+Function Export-SQLToCSV
+{      
+    [CmdletBinding()]
+	param(		        
+        [string] $providerName = "System.Data.OleDb",
+        [string] $connectionString,		         
+        [string] $sqlCommand,
+		[string] $outputPath		
+      )
+
+	try
+    {
+
+	    Write-Verbose "Connecting to SQL datasource..."
+
+        $conn = Get-SQLConnection -providerName $providerName -connectionString $connectionString -open
+	
+	    $reader = Invoke-SQLCommand -connection $conn -commandText $sqlCommand -executeType "Reader"
+
+        Write-Verbose "Connected..."
+		
+        $tableCsvPath = $outputPath		
+
+        Write-Verbose "Copying data from into '$tableCsvPath'"
+  
+        $textWriter = New-Object System.IO.StreamWriter($tableCsvPath, $false, [System.Text.Encoding]::UTF8)
+
+        $csvWriter = New-Object CsvHelper.CsvWriter($textWriter)
+       
+        $hasHeaderBeenWritten = $false;
+  
+        $csvWriter.Configuration.CultureInfo.NumberFormat.NumberDecimalSeparator="."
+
+        $rows=0
+
+        $fieldCount=0
+
+        if ($reader.Read())
+        {
+            $fieldCount=$reader.FieldCount
+
+            for ($fieldOrdinal = 0; $fieldOrdinal -lt $fieldCount; $fieldOrdinal++)
+            {
+                $colName=$reader.GetName( $fieldOrdinal ).Replace("[","").Replace("]","")
+			    $csvWriter.WriteField( $colName );                 
+            }
+
+            $csvWriter.NextRecord();
+            
+            $rows++
+
+            for ($fieldOrdinal = 0; $fieldOrdinal -lt $fieldCount; $fieldOrdinal++)
+            {
+                $fieldValue=$reader[$fieldOrdinal ];             
+                $csvWriter.WriteField($fieldValue);                 
+            }
+
+            $csvWriter.NextRecord();
+
+            if($rows % 5000 -eq 0)
+            {
+                Write-Verbose "Inserted $rows rows into '$tableCsvPath'... "
+            }
+                
+        }
+
+        Write-Verbose "Fields in dataset '$fieldCount'"
+
+        while($reader.Read())
+	    {
+            $rows++
+
+            for ($fieldOrdinal = 0; $fieldOrdinal -lt $fieldCount; $fieldOrdinal++)
+            {                    
+                $fieldValue=$reader[$fieldOrdinal ];             
+                $csvWriter.WriteField($fieldValue);                 
+            }
+
+            $csvWriter.NextRecord();
+
+            if($rows % 5000 -eq 0)
+            {
+                Write-Verbose "Inserted $rows rows into '$tableCsvPath'... "
+            }
+
+        }             
+		
+	    Write-Verbose "Inserted $rows rows into '$tableCsvPath' "
+		
+	}
+    finally
+    {
+        if ($textWriter -ne $null)
+        {
+            $textWriter.Dispose()
+        }
+
+        if ($cmd -ne $null)
+        {
+            $cmd.Dispose()
+        }   
+
+        if ($reader -ne $null)
+        {
+            $reader.Dispose()
+        }
+
+        if ($conn -ne $null)
+        {
+            $conn.Dispose()
+        }
+    }
+}
+
 #endregion
 
 #region Private Methods
